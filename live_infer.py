@@ -7,8 +7,15 @@ import cv2
 import torch.nn.functional as F
 from PIL import Image
 import numpy as np
+import os
+import requests
+from dotenv import load_dotenv
+import gdown
 
 from fastapi import FastAPI
+
+# Load environment variables
+load_dotenv()
 
 # Initiaize an instance
 app = FastAPI()
@@ -17,9 +24,30 @@ app = FastAPI()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Set up our model
-model_path = Path("result/best_model.pth")
 model = ResEmoteNet().to(device)
-model.load_state_dict(torch.load(model_path, weights_only=True, map_location=device))
+
+# Create cache directory if it doesn't exist
+os.makedirs('model_cache', exist_ok=True)
+
+# Download and load model weights
+weights_path = os.path.join('model_cache', 'best_model.pth')
+if not os.path.exists(weights_path):
+    print("Downloading model weights from Google Drive...")
+    # Environment variable set in Heroku config vars
+    # The URL should be in the format: https://drive.google.com/uc?id=YOUR_FILE_ID
+    gdrive_url = os.getenv('GDRIVE_MODEL_URL')
+    if gdrive_url:
+        try:
+            gdown.download(gdrive_url, weights_path, quiet=False)
+            print("Model weights downloaded successfully")
+        except Exception as e:
+            print(f"Error downloading weights: {e}")
+            raise Exception("Failed to download model weights")
+    else:
+        raise Exception("GDRIVE_MODEL_URL environment variable not set")
+
+# Load the model weights
+model.load_state_dict(torch.load(weights_path, map_location=device))
 model.eval()
 
 # ============= Build a data transformation pipeline ============
