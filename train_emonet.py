@@ -2,6 +2,7 @@
     Training program for EmoNeXt model 
 """
 import torch
+import os
 import wandb 
 from tqdm import tqdm
 import sys
@@ -19,6 +20,7 @@ import random
 import argparse
 from datetime import datetime
 from models.Emonext import get_model
+import matplotlib.pyplot as plt
 
 load_dotenv()
 wandb_api_key = os.getenv("WANDB_API_KEY")
@@ -202,7 +204,7 @@ class Trainer:
         self.model.eval()
 
         avg_loss = []
-        predicted_lables = []
+        predicted_labels = []
         true_labels = []
 
         pbar = tqdm(unit="batch", file=sys.stdout, total=len(self.validation_dl))
@@ -216,7 +218,7 @@ class Trainer:
                 predictions, _, loss = self.model(inputs, labels)
 
             avg_loss.append(loss.item())
-            predicted_lables.extend(predictions.tolist())
+            predicted_labels.extend(predictions.tolist())
             true_labels.extend(labels.tolist())
 
             pbar.update()
@@ -392,7 +394,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--dataset_path", type=str, help="Path to the entire dataset")
     parser.add_argument("--output_dir", type=str, 
-                        help="Path to save the model checkpoint", default="out")
+                        help="Path to save the model checkpoint", default="/result")
 
     parser.add_argument("--epochs", type=int, help="Maximum number of epochs")
     parser.add_argument("--batch_size", type=int, help="Batch size for training", default=32)
