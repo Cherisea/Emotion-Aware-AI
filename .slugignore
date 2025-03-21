@@ -1,0 +1,16 @@
+/data
+/.vscode
+*.pyc
+__pycache__
+.git
+.env
+.venv
+wandb/
+tests/
+*.test.py
+*.ipynb
+.pytest_cache/
+.coverage
+htmlcov/
+docs/
+*.log 
