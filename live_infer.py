@@ -8,6 +8,11 @@ import torch.nn.functional as F
 from PIL import Image
 import numpy as np
 
+from fastapi import FastAPI
+
+# Initiaize an instance
+app = FastAPI()
+
 # Configure Pytorch computation backend to either Nvidia GPUs or Apple silicon
 device = "cuda" if torch.cuda.is_available() else "mps"
 
@@ -122,30 +127,34 @@ def detect_bounding_box(frame, counter):
 
     return faces
 
-# Access live webcam feed
-video_capture =cv2.VideoCapture(0)
+@app.get("/infer")
+def infer():
+    # Access live webcam feed
+    video_capture =cv2.VideoCapture(0)
 
-counter = 0
-detect_frequency = 5
-# Face detection loop
-while True:
-    ret, video_frame = video_capture.read()
+    counter = 0
+    detect_frequency = 5
+    # Face detection loop
+    while True:
+        ret, video_frame = video_capture.read()
 
-    if ret is False:
-        break
+        if ret is False:
+            break
 
-    # Draw a bounding box around faces
-    faces = detect_bounding_box(video_frame, counter)
+        # Draw a bounding box around faces
+        faces = detect_bounding_box(video_frame, counter)
 
-    cv2.imshow("Emotion Dection", video_frame)
+        cv2.imshow("Emotion Dection", video_frame)
 
-    if cv2.waitKey(1) & 0xff == ord('q'):
-        break
+        if cv2.waitKey(1) & 0xff == ord('q'):
+            break
 
-    counter += 1
-    if counter == detect_frequency:
-        counter = 0
+        counter += 1
+        if counter == detect_frequency:
+            counter = 0
 
-# Video feed cleanup
-video_capture.release()
-cv2.destroyAllWindows()
+    # Video feed cleanup
+    video_capture.release()
+    cv2.destroyAllWindows()
+
+    return {"status": "Webcam stopped"}
