@@ -14,7 +14,7 @@ from fastapi import FastAPI
 app = FastAPI()
 
 # Configure Pytorch computation backend to either Nvidia GPUs or Apple silicon
-device = "cuda" if torch.cuda.is_available() else "mps"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Set up our model
 model_path = Path("result/best_model.pth")
