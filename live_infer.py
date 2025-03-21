@@ -11,13 +11,14 @@ import os
 import requests
 from dotenv import load_dotenv
 import gdown
+import gc
 
 from fastapi import FastAPI
 
 # Load environment variables
 load_dotenv()
 
-# Initiaize an instance
+# Initialize an instance
 app = FastAPI()
 
 # Configure Pytorch computation backend to either Nvidia GPUs or Apple silicon
@@ -46,9 +47,27 @@ if not os.path.exists(weights_path):
     else:
         raise Exception("GDRIVE_MODEL_URL environment variable not set")
 
-# Load the model weights
-model.load_state_dict(torch.load(weights_path, map_location=device))
-model.eval()
+# Load the model weights with memory optimization
+try:
+    # Clear any existing memory
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
+    # Load model weights with map_location to ensure CPU usage
+    state_dict = torch.load(weights_path, map_location='cpu')
+    model.load_state_dict(state_dict)
+    
+    # Move model to CPU and set to eval mode
+    model = model.cpu()
+    model.eval()
+    
+    # Clear memory again
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
+except Exception as e:
+    print(f"Error loading model: {e}")
+    raise
 
 # ============= Build a data transformation pipeline ============
 transform = transforms.Compose([
@@ -75,37 +94,48 @@ line_type = cv2.LINE_AA
 # Define a list of emotions based on its corresponding index position
 emotions = ['angry', 'frustration', 'boredom', 'happy', 'sad', 'surprise', 'neutral']
 
-max_emotion = ''
 def infer_emotion(frame):
     """
         Compute the probabilities of different emotions in an image frame
     """
-    frame_tensor = transform(frame).unsqueeze(0).to(device)
+    try:
+        # Clear memory before inference
+        gc.collect()
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        frame_tensor = transform(frame).unsqueeze(0).cpu()
 
-    # Run inference on image tensor without gradient computation
-    with torch.no_grad():
-        output = model(frame_tensor)
-        probs = F.softmax(output, dim=1)
+        # Run inference on image tensor without gradient computation
+        with torch.no_grad():
+            output = model(frame_tensor)
+            probs = F.softmax(output, dim=1)
 
-    # Convert tensors to numpy values
-    scores = probs.cpu().numpy().flatten()
-    rounded_scores = [round(score, 2) for score in scores]
-    return rounded_scores
+        # Convert tensors to numpy values
+        scores = probs.numpy().flatten()
+        rounded_scores = [round(score, 2) for score in scores]
+        
+        # Clear memory after inference
+        gc.collect()
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        return rounded_scores
+    except Exception as e:
+        print(f"Error in inference: {e}")
+        return [0.0] * len(emotions)  # Return neutral probabilities in case of error
 
-def infer_max_emotion(x, y, w, h,frame):
+def infer_max_emotion(x, y, w, h, frame):
     """
         Employ our ML model to infer the most likely emotion in a video frame
-        
-        x,y: coordinates of top left point
-        w,h: width and height of an image frame
-        frame: a video frame
     """
-    cropped_img = frame[y:y+h, x:x+w]
-    pil_img = Image.fromarray(cropped_img)
-    scores = infer_emotion(pil_img)
-    max_idx = np.argmax(scores)
-    return emotions[max_idx]
-
+    try:
+        cropped_img = frame[y:y+h, x:x+w]
+        pil_img = Image.fromarray(cropped_img)
+        scores = infer_emotion(pil_img)
+        max_idx = np.argmax(scores)
+        return emotions[max_idx]
+    except Exception as e:
+        print(f"Error in emotion inference: {e}")
+        return "neutral"
 
 def print_max_emotion(x, y, frame, emotion):
     """
@@ -120,16 +150,19 @@ def print_all_emotion(x, y, w, h, frame):
     """
         Display all emotion labels and their probability score on video frames
     """
-    cropped_img = frame[y:y+h, x:x+w]
-    pil_img = Image.fromarray(cropped_img)
-    all_scores = infer_emotion(pil_img)
-    org = (x+w+10, y-20)
+    try:
+        cropped_img = frame[y:y+h, x:x+w]
+        pil_img = Image.fromarray(cropped_img)
+        all_scores = infer_emotion(pil_img)
+        org = (x+w+10, y-20)
 
-    for k, v in enumerate(emotions):
-        text = f"Label {v}: {all_scores[k]}"
-        y = org[1] + 40
-        org = (org[0], y)
-        cv2.putText(frame, text, org, font, font_scale, font_color, thickness, line_type)
+        for k, v in enumerate(emotions):
+            text = f"Label {v}: {all_scores[k]}"
+            y = org[1] + 40
+            org = (org[0], y)
+            cv2.putText(frame, text, org, font, font_scale, font_color, thickness, line_type)
+    except Exception as e:
+        print(f"Error printing emotions: {e}")
 
 def detect_bounding_box(frame, counter):
     """
@@ -138,51 +171,57 @@ def detect_bounding_box(frame, counter):
         frame: an image frame
         counter: an integer controlling when to invoke our ML model
     """
-    global max_emotion
-    gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_classifier.detectMultiScale(gray_img, 1.1, 5, minSize=(40, 40))
+    try:
+        gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_classifier.detectMultiScale(gray_img, 1.1, 5, minSize=(40, 40))
 
-    for x, y, w, h in faces:
-        # Draw a bounding box around a face
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        for x, y, w, h in faces:
+            # Draw a bounding box around a face
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
-        # Infer emotion on defined interval
-        if counter == 0:
-            max_emotion = infer_max_emotion(x, y, w, h, frame)
+            # Infer emotion on defined interval
+            if counter == 0:
+                max_emotion = infer_max_emotion(x, y, w, h, frame)
+                print_max_emotion(x, y, frame, max_emotion)
+                print_all_emotion(x, y, w, h, frame)
 
-        print_max_emotion(x, y, frame, max_emotion)
-        print_all_emotion(x, y, w, h, frame)
-
-    return faces
+        return faces
+    except Exception as e:
+        print(f"Error in face detection: {e}")
+        return []
 
 @app.get("/infer")
 def infer():
-    # Access live webcam feed
-    video_capture =cv2.VideoCapture(0)
+    try:
+        # Access live webcam feed
+        video_capture = cv2.VideoCapture(0)
 
-    counter = 0
-    detect_frequency = 5
-    # Face detection loop
-    while True:
-        ret, video_frame = video_capture.read()
+        counter = 0
+        detect_frequency = 5
+        # Face detection loop
+        while True:
+            ret, video_frame = video_capture.read()
 
-        if ret is False:
-            break
+            if ret is False:
+                break
 
-        # Draw a bounding box around faces
-        faces = detect_bounding_box(video_frame, counter)
+            # Draw a bounding box around faces
+            faces = detect_bounding_box(video_frame, counter)
 
-        cv2.imshow("Emotion Dection", video_frame)
+            cv2.imshow("Emotion Detection", video_frame)
 
-        if cv2.waitKey(1) & 0xff == ord('q'):
-            break
+            if cv2.waitKey(1) & 0xff == ord('q'):
+                break
 
-        counter += 1
-        if counter == detect_frequency:
-            counter = 0
+            counter += 1
+            if counter == detect_frequency:
+                counter = 0
 
-    # Video feed cleanup
-    video_capture.release()
-    cv2.destroyAllWindows()
+        # Video feed cleanup
+        video_capture.release()
+        cv2.destroyAllWindows()
 
-    return {"status": "Webcam stopped"}
+        return {"status": "Webcam stopped"}
+    except Exception as e:
+        print(f"Error in main loop: {e}")
+        return {"status": "Error occurred", "error": str(e)}
