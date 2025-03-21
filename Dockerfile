@@ -1,26 +1,33 @@
-# For more information, please refer to https://aka.ms/vscode-docker-python
-FROM python:3.9
+# Use Python 3.10 slim image
+FROM python:3.10-slim
 
-# Keeps Python from generating .pyc files in the container
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
-
-# Turns off buffering for easier container logging
 ENV PYTHONUNBUFFERED=1
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /app
-COPY . /app
 
-# Install pip requirements
-# COPY requirements.txt .
-RUN python -m pip install -r requirements.txt
+# Copy only the necessary files
+COPY requirements.txt .
+COPY live_infer.py .
+COPY models/Resnet.py ./models/
+COPY .env .
 
-# Ensure result folder is writtable by the image
-RUN chmod -R 777 result
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Creates a non-root user with an explicit UID and adds permission to access the /app folder
-# For more info, please refer to https://aka.ms/vscode-docker-python-configure-containers
-# RUN adduser -u 5678 --disabled-password --gecos "" appuser && chown -R appuser /app
-# USER appuser
+# Create directory for model cache
+RUN mkdir -p model_cache
 
-# Sett a bash prompt as container entry point
-ENTRYPOINT [ "/bin/bash" ]
+# Expose the port the app runs on
+EXPOSE 8000
+
+# Command to run the application
+CMD ["uvicorn", "live_infer:app", "--host", "0.0.0.0", "--port", "8000"]
