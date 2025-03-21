@@ -13,4 +13,9 @@ tests/
 .coverage
 htmlcov/
 docs/
-*.log 
+*.log
+train_emonet.py
+train_resnet.py
+scheduler.py
+/models/Emonext.py
+README.md 
