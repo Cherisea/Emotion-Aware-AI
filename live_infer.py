@@ -7,20 +7,98 @@ import cv2
 import torch.nn.functional as F
 from PIL import Image
 import numpy as np
+import os
+import requests
+from dotenv import load_dotenv
+import gdown
+import gc
+import logging
+from typing import List, Tuple, Optional
+import base64
+from io import BytesIO
 
-# Configure Pytorch computation backend to either Nvidia GPUs or Apple silicon
-device = "cuda" if torch.cuda.is_available() else "mps"
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
-# Set up our model
-model_path = Path("result/best_model.pth")
-model = ResEmoteNet().to(device)
-model.load_state_dict(torch.load(model_path, weights_only=True, map_location=device))
-model.eval()
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ============= Build a data transformation pipeline ============
+# Load environment variables
+load_dotenv()
+
+# Initialize FastAPI app
+app = FastAPI(title="Emotion Detection API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Constants
+MODEL_CACHE_DIR = "model_cache"
+MODEL_FILENAME = "best_model.pth"
+EMOTIONS = ['angry', 'frustration', 'boredom', 'happy', 'sad', 'surprise', 'neutral']
+
+# Configure device
+device = "cpu"
+
+def setup_model() -> ResEmoteNet:
+    """
+    Initialize and load the model from Google Drive.
+    Returns:
+        ResEmoteNet: Loaded model
+    Raises:
+        HTTPException: If model loading fails
+    """
+    try:
+        # Create cache directory
+        os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
+        model_path = os.path.join(MODEL_CACHE_DIR, MODEL_FILENAME)
+
+        # Initialize model
+        model = ResEmoteNet().to(device)
+
+        # Download model if not in cache
+        if not os.path.exists(model_path):
+            logger.info("Downloading model weights from Google Drive...")
+            gdrive_url = os.getenv('GDRIVE_MODEL_URL')
+            if not gdrive_url:
+                raise ValueError("GDRIVE_MODEL_URL environment variable not set")
+            
+            try:
+                gdown.download(gdrive_url, model_path, quiet=False)
+                logger.info("Model weights downloaded successfully")
+            except Exception as e:
+                logger.error(f"Failed to download model: {e}")
+                raise HTTPException(status_code=500, detail="Failed to download model weights")
+
+        # Load model weights
+        try:
+            state_dict = torch.load(model_path, map_location=device)
+            model.load_state_dict(state_dict)
+            model.eval()
+            logger.info("Model loaded successfully")
+            return model
+        except Exception as e:
+            logger.error(f"Failed to load model weights: {e}")
+            raise HTTPException(status_code=500, detail="Failed to load model weights")
+
+    except Exception as e:
+        logger.error(f"Model setup failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Initialize model at startup
+model = setup_model()
+
+# Image transformation pipeline
 transform = transforms.Compose([
-    # Faciliate the execution of SE Block
     transforms.Grayscale(num_output_channels=3),
+    transforms.Resize((64, 64)),
     transforms.ToTensor(),
     transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
@@ -32,120 +110,139 @@ transform = transforms.Compose([
 face_classifier = cv2.CascadeClassifier(cv2.data.haarcascades 
                                         + "haarcascade_frontalface_default.xml")
 
-# Settings for text
-font = cv2.FONT_HERSHEY_SIMPLEX
-font_scale = 1.2
-font_color = (0, 255, 0)
-thickness = 3
-line_type = cv2.LINE_AA
-
-# Define a list of emotions based on its corresponding index position
-emotions = ['angry', 'frustration', 'boredom', 'happy', 'sad', 'surprise', 'neutral']
-
-max_emotion = ''
-def infer_emotion(frame):
+def preprocess_image(image: Image.Image) -> torch.Tensor:
     """
-        Compute the probabilities of different emotions in an image frame
+    Preprocess image for model input.
+    Args:
+        image: PIL Image
+    Returns:
+        torch.Tensor: Preprocessed image tensor
     """
-    frame_tensor = transform(frame).unsqueeze(0).to(device)
+    try:
+        return transform(image).unsqueeze(0)
+    except Exception as e:
+        logger.error(f"Image preprocessing failed: {e}")
+        raise HTTPException(status_code=400, detail="Failed to preprocess image")
 
-    # Run inference on image tensor without gradient computation
-    with torch.no_grad():
-        output = model(frame_tensor)
-        probs = F.softmax(output, dim=1)
-
-    # Convert tensors to numpy values
-    scores = probs.cpu().numpy().flatten()
-    rounded_scores = [round(score, 2) for score in scores]
-    return rounded_scores
-
-def infer_max_emotion(x, y, w, h,frame):
+def infer_emotion(image: Image.Image) -> List[float]:
     """
-        Employ our ML model to infer the most likely emotion in a video frame
+    Infer emotions from an image.
+    Args:
+        image: PIL Image
+    Returns:
+        List[float]: Emotion probabilities
+    """
+    try:
+        # Clear memory
+        gc.collect()
         
-        x,y: coordinates of top left point
-        w,h: width and height of an image frame
-        frame: a video frame
+        # Preprocess image
+        image_tensor = preprocess_image(image)
+        
+        # Run inference
+        with torch.no_grad():
+            output = model(image_tensor)
+            probs = F.softmax(output, dim=1)
+        
+        # Convert to probabilities
+        scores = probs.numpy().flatten()
+        rounded_scores = [round(score, 2) for score in scores]
+        
+        # Clear memory
+        gc.collect()
+        
+        return rounded_scores
+    except Exception as e:
+        logger.error(f"Inference failed: {e}")
+        raise HTTPException(status_code=500, detail="Inference failed")
+
+def detect_faces(frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
     """
-    cropped_img = frame[y:y+h, x:x+w]
-    pil_img = Image.fromarray(cropped_img)
-    scores = infer_emotion(pil_img)
-    max_idx = np.argmax(scores)
-    return emotions[max_idx]
-
-
-def print_max_emotion(x, y, frame, emotion):
+    Detect faces in a frame.
+    Args:
+        frame: OpenCV image frame
+    Returns:
+        List[Tuple[int, int, int, int]]: List of face bounding boxes
     """
-        Display the most likely emotion label on video frames
+    try:
+        gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_classifier.detectMultiScale(gray_img, 1.1, 5, minSize=(40, 40))
+        return faces
+    except Exception as e:
+        logger.error(f"Face detection failed: {e}")
+        return []
 
-        emotion: string label to annote a frame
+def process_frame(frame: np.ndarray) -> Tuple[str, List[float]]:
     """
-    org = (x, y - 10)
-    cv2.putText(frame, emotion, org, font, font_scale, font_color, thickness, line_type)
-
-def print_all_emotion(x, y, w, h, frame):
+    Process a frame and return the predicted emotion and probabilities.
+    Args:
+        frame: OpenCV image frame
+    Returns:
+        Tuple[str, List[float]]: Predicted emotion and probabilities
     """
-        Display all emotion labels and their probability score on video frames
+    try:
+        faces = detect_faces(frame)
+        if not faces:
+            return None, None
+
+        # Get the first face detected
+        x, y, w, h = faces[0]
+        face_img = frame[y:y+h, x:x+w]
+        pil_img = Image.fromarray(face_img)
+        
+        # Get emotion probabilities
+        probabilities = infer_emotion(pil_img)
+        predicted_emotion = EMOTIONS[np.argmax(probabilities)]
+        
+        return predicted_emotion, probabilities
+    except Exception as e:
+        logger.error(f"Frame processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/predict")
+async def predict_emotion(request: Request):
     """
-    cropped_img = frame[y:y+h, x:x+w]
-    pil_img = Image.fromarray(cropped_img)
-    all_scores = infer_emotion(pil_img)
-    org = (x+w+10, y-20)
-
-    for k, v in enumerate(emotions):
-        text = f"Label {v}: {all_scores[k]}"
-        y = org[1] + 40
-        org = (org[0], y)
-        cv2.putText(frame, text, org, font, font_scale, font_color, thickness, line_type)
-
-def detect_bounding_box(frame, counter):
+    Endpoint to predict emotion from an image frame.
+    Expected JSON payload:
+    {
+        "frame": "base64_encoded_image_data"
+    }
+    Returns:
+    {
+        "emotion": "predicted_emotion",
+        "probabilities": {
+            "angry": 0.1,
+            "frustration": 0.2,
+            ...
+        }
+    }
     """
-        Detect faces in a video stream
+    try:
+        # Get the frame data from the request
+        data = await request.json()
+        frame_data = data.get("frame")
+        if not frame_data:
+            raise HTTPException(status_code=400, detail="No frame data provided")
 
-        frame: an image frame
-        counter: an integer controlling when to invoke our ML model
+        # Decode base64 image
+        frame_bytes = base64.b64decode(frame_data.split(",")[1])
+        nparr = np.frombuffer(frame_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # Process frame
+        emotion, probabilities = process_frame(frame)
+
+        return {
+            "emotion": emotion,
+            "probabilities": dict(zip(EMOTIONS, probabilities)) if probabilities else None
+        }
+    except Exception as e:
+        logger.error(f"Prediction failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+def health_check():
     """
-    global max_emotion
-    gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_classifier.detectMultiScale(gray_img, 1.1, 5, minSize=(40, 40))
-
-    for x, y, w, h in faces:
-        # Draw a bounding box around a face
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-
-        # Infer emotion on defined interval
-        if counter == 0:
-            max_emotion = infer_max_emotion(x, y, w, h, frame)
-
-        print_max_emotion(x, y, frame, max_emotion)
-        print_all_emotion(x, y, w, h, frame)
-
-    return faces
-
-# Access live webcam feed
-video_capture =cv2.VideoCapture(0)
-
-counter = 0
-detect_frequency = 5
-# Face detection loop
-while True:
-    ret, video_frame = video_capture.read()
-
-    if ret is False:
-        break
-
-    # Draw a bounding box around faces
-    faces = detect_bounding_box(video_frame, counter)
-
-    cv2.imshow("Emotion Dection", video_frame)
-
-    if cv2.waitKey(1) & 0xff == ord('q'):
-        break
-
-    counter += 1
-    if counter == detect_frequency:
-        counter = 0
-
-# Video feed cleanup
-video_capture.release()
-cv2.destroyAllWindows()
+    Health check endpoint.
+    """
+    return {"status": "healthy"}
