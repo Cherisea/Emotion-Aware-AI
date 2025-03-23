@@ -183,7 +183,8 @@ def process_frame(frame: np.ndarray) -> Tuple[str, List[float]]:
     try:
         faces = detect_faces(frame)
         if not faces:
-            return None, None
+            logger.info("No faces detected in frame")
+            return "no_face", [0.0] * len(EMOTIONS)  # Return neutral probabilities when no face is detected
 
         # Get the first face detected
         x, y, w, h = faces[0]
@@ -228,13 +229,19 @@ async def predict_emotion(request: Request):
         frame_bytes = base64.b64decode(frame_data.split(",")[1])
         nparr = np.frombuffer(frame_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            raise HTTPException(status_code=400, detail="Failed to decode image")
 
         # Process frame
         emotion, probabilities = process_frame(frame)
 
+        if emotion is None or probabilities is None:
+            raise HTTPException(status_code=500, detail="Failed to process frame")
+
         return {
             "emotion": emotion,
-            "probabilities": dict(zip(EMOTIONS, probabilities)) if probabilities else None
+            "probabilities": dict(zip(EMOTIONS, probabilities))
         }
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
