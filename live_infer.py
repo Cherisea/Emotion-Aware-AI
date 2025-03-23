@@ -8,14 +8,12 @@ import torch.nn.functional as F
 from PIL import Image
 import numpy as np
 import os
-import requests
 from dotenv import load_dotenv
 import gdown
 import gc
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import base64
-from io import BytesIO
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -219,25 +217,26 @@ async def predict_emotion(request: Request):
     }
     """
     try:
-        # Get the frame data from the request
         data = await request.json()
         frame_data = data.get("frame")
         if not frame_data:
             raise HTTPException(status_code=400, detail="No frame data provided")
 
-        # Decode base64 image
-        frame_bytes = base64.b64decode(frame_data.split(",")[1])
+        # Validate base64 data format
+        if not frame_data.startswith("data:image/jpeg;base64,"):
+            raise HTTPException(status_code=400, detail="Invalid image data format")
+
+        # Extract and decode base64 image
+        base64_data = frame_data.split(",")[1]
+        frame_bytes = base64.b64decode(base64_data)
         nparr = np.frombuffer(frame_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if frame is None:
             raise HTTPException(status_code=400, detail="Failed to decode image")
 
         # Process frame
         emotion, probabilities = process_frame(frame)
-
-        if emotion is None or probabilities is None:
-            raise HTTPException(status_code=500, detail="Failed to process frame")
 
         return {
             "emotion": emotion,
