@@ -140,7 +140,9 @@ def infer_emotion(image: Image.Image) -> List[float]:
         
         # Convert to probabilities
         scores = probs.numpy().flatten()
-        rounded_scores = [round(score, 2) for score in scores]
+        print(f"Scores type: {type(scores)}")
+        # Convert numpy float32 to python float
+        rounded_scores = [float(round(score, 2)) for score in scores]
         
         return rounded_scores
     except Exception as e:
