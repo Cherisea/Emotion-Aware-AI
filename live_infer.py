@@ -10,7 +10,6 @@ import numpy as np
 import os
 from dotenv import load_dotenv
 import gdown
-import gc
 import logging
 from typing import List, Tuple
 import base64
@@ -131,9 +130,6 @@ def infer_emotion(image: Image.Image) -> List[float]:
         List[float]: Emotion probabilities
     """
     try:
-        # Clear memory
-        gc.collect()
-        
         # Preprocess image
         image_tensor = preprocess_image(image)
         
@@ -145,9 +141,6 @@ def infer_emotion(image: Image.Image) -> List[float]:
         # Convert to probabilities
         scores = probs.numpy().flatten()
         rounded_scores = [round(score, 2) for score in scores]
-        
-        # Clear memory
-        gc.collect()
         
         return rounded_scores
     except Exception as e:
@@ -180,7 +173,7 @@ def process_frame(frame: np.ndarray) -> Tuple[str, List[float]]:
     """
     try:
         faces = detect_faces(frame)
-        if not faces:
+        if len(faces) == 0:
             logger.info("No faces detected in frame")
             return "no_face", [0.0] * len(EMOTIONS)  # Return neutral probabilities when no face is detected
 
@@ -226,10 +219,16 @@ async def predict_emotion(request: Request):
         if not frame_data.startswith("data:image/jpeg;base64,"):
             raise HTTPException(status_code=400, detail="Invalid image data format")
 
-        # Extract and decode base64 image
+        # Extract the second part of the base64 data, data URL
         base64_data = frame_data.split(",")[1]
+
+        # Convert base64 encoded string back to bytes
         frame_bytes = base64.b64decode(base64_data)
+
+        # Convert bytes back to numpy array of type unsigned 8-bit integer
         nparr = np.frombuffer(frame_bytes, np.uint8)
+
+        # Decode numpy array into an image
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if frame is None:
