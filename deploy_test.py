@@ -13,7 +13,10 @@ API_URL = os.getenv("API_URL")
 
 def encode_frame(frame):
     """Convert OpenCV frame to base64 string."""
+    # Convert frame to JPEG format and get a numpy array buffer
     _, buffer = cv2.imencode('.jpg', frame)
+
+    # Encode the buffer in base64 binary format and decode it to a string
     return base64.b64encode(buffer).decode('utf-8')
 
 def test_emotion_detection(interval=5):
