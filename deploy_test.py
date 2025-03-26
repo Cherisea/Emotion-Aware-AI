@@ -1,3 +1,9 @@
+"""
+    This script is used to demonstrate how to get predictions from our deployed model.
+    It captures frames from your webcam and sends them to the API for prediction at a
+    specified interval.
+"""
+
 import cv2
 import base64
 import requests
