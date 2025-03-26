@@ -2,13 +2,28 @@ import cv2
 import base64
 import requests
 import json
+from dotenv import load_dotenv
+import os
+import time
+
+load_dotenv()
+
+# Get API URL from .env file
+API_URL = os.getenv("API_URL")
 
 def encode_frame(frame):
     """Convert OpenCV frame to base64 string."""
     _, buffer = cv2.imencode('.jpg', frame)
     return base64.b64encode(buffer).decode('utf-8')
 
-def test_emotion_detection():
+def test_emotion_detection(interval=5):
+    """
+    Test the emotion detection model by capturing frames from the webcam
+    and sending them to the API for prediction. 
+
+    Args:
+        interval (int): The interval between frames in seconds. Default is 5.
+    """
     # Initialize webcam
     cap = cv2.VideoCapture(0)
     
@@ -20,7 +35,7 @@ def test_emotion_detection():
                 print("Failed to read frame from webcam")
                 break
                 
-            # Convert frame to base64
+            # Convert frame to base64 string
             frame_data = encode_frame(frame)
             
             # Prepare the request
@@ -28,10 +43,10 @@ def test_emotion_detection():
                 "frame": f"data:image/jpeg;base64,{frame_data}"
             }
             
-            # Make the request to your local server
+            # Make a post request to our DO web service
             try:
                 response = requests.post(
-                    "http://localhost:8000/predict",
+                    API_URL,
                     json=payload
                 )
                 
@@ -48,8 +63,11 @@ def test_emotion_detection():
                     
             except requests.exceptions.RequestException as e:
                 print(f"Request failed: {e}")
+
+            # Wait for interval seconds before next frame
+            time.sleep(interval)
             
-            # Break loop on 'q' press
+            # Wait for keyboard input for 1ms and break loop on 'q' key press
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
                 
