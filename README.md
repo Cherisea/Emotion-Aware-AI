@@ -1,7 +1,11 @@
 # Emotion-Aware-AI
 This research project aims to increase user engagement of learning games with a topic in computer science by dynamically adjusting the difficulty level through an emotion-aware NPC (Non-player character). The NPC, powered by an facial emotion recognition (FER) algorithm that categorizes facial expressions into 8 emotion types (including 3 custom ones), detects the current state of players via a combination of camera feed and in-game text sent between players.
 
-## Data
+## Table of Content
+1. [Data Extration](#data-extraction)
+2. [Model Deployment](#model-deployment)
+
+## Data Extraction
 Following the standard of well-known dataset FER-2013 created by Pierre Luc Carrier and Aaron Courville, integer labels are used to classify facial images expressing eight emotions, three of which (in italics) are tailored to the needs of this project:
 - 0: Angry -- 4953
 - 1: *Frustration* -- 265
@@ -30,9 +34,11 @@ Since custom images are collected via Google Images API, make sure to load your 
 > [!CAUTION]
 > Other modes in the menu may break since they have been deprecated upon finishing data collection. Please see comments in [main.py](data/main.py). 
 
-## Emotion Detection API
+---
 
-A FastAPI-based web service hosted on Digital Ocean that performs real-time emotion detection from webcam frames. The service accepts base64-encoded images and returns predicted emotions with their probabilities.
+## Model Deployment
+
+A FastAPI-based web service built from a Docker image residing in Docker Hub and hosted on Digital Ocean that performs real-time emotion detection from webcam frames. The service accepts base64-encoded images and returns predicted emotions with their probabilities.
 
 ### Files
 
@@ -79,11 +85,11 @@ Returns:
 #### GET /health
 Health check endpoint that returns service status.
 
-## Environment Variables
+### Environment Variables
 - `GDRIVE_MODEL_URL`: URL to download the trained model weights
 - `API_URL`: Base URL of the deployed API (for test script)
 
-## Docker Deployment
+### Docker Deployment
 The service can be containerized and deployed to cloud platforms like Digital Ocean. The Dockerfile sets up the necessary environment and dependencies for running the emotion detection service. Docker image should then be pushed to an online registry, such as Docker Hub for retrieval by your host platform. 
 
 > [!CAUTION]
