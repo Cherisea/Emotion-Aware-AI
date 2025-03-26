@@ -52,10 +52,10 @@ def test_emotion_detection(interval=5):
                 "frame": f"data:image/jpeg;base64,{frame_data}"
             }
             
-            # Make a post request to our DO web service
             try:
+                # Make a post request to the /predict endpoint
                 response = requests.post(
-                    API_URL,
+                    API_URL + "/predict",
                     json=payload
                 )
                 
