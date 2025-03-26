@@ -52,7 +52,7 @@ A FastAPI-based web service hosted on Digital Ocean that performs real-time emot
 
 ### API Endpoints
 
-### POST /predict
+#### POST /predict
 Accepts base64-encoded image data and returns detected emotions:
 ```json
 {
@@ -76,7 +76,7 @@ Returns:
 }
 ```
 
-### GET /health
+#### GET /health
 Health check endpoint that returns service status.
 
 ## Environment Variables
@@ -84,7 +84,7 @@ Health check endpoint that returns service status.
 - `API_URL`: Base URL of the deployed API (for test script)
 
 ## Docker Deployment
-The service can be containerized and deployed to cloud platforms like Digital Ocean. The Dockerfile sets up the necessary environment and dependencies for running the emotion detection service.
+The service can be containerized and deployed to cloud platforms like Digital Ocean. The Dockerfile sets up the necessary environment and dependencies for running the emotion detection service. Docker image should then be pushed to an online registry, such as Docker Hub for retrieval by your host platform. 
 
 > [!CAUTION]
 > Make sure to build your image with a flag `--platform=linux/amd64` since their APP platform only supports binaries built for the AMD64 CPU architecture. See [details](https://docs.digitalocean.com/products/app-platform/details/limits/#:~:text=built%20for%20the-,AMD64,-CPU%20architecture). Requirement may vary. Consult documentation of related host platforms if you'd like to deploy it on other places.
