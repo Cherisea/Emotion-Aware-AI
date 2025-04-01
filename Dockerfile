@@ -5,7 +5,7 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Update package list and install OpenCV dependencies
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
@@ -20,10 +20,10 @@ COPY live_infer.py .
 COPY models/Resnet.py ./models/
 COPY .env .
 
-# Install Python dependencies
+# Disable package download cache to reduce image size
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create directory for model cache
+# Create directory for store model weights
 RUN mkdir -p model_cache
 
 # Expose the port the app runs on
